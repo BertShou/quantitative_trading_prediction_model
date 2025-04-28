@@ -34,7 +34,7 @@
 
 ## 另外：
   - 各组员根据自己感兴趣的研究方向，选择某个模块，填写负责人，在相应的checkbox中打钩，后提交PR合并。
-    - 例如项目的初模型的开发，由我来做，那我就在负责人这里填上的我的名字，然后提交PR
+    - 例如项目的初模型的开发，由我来做，那我就在负责人这里填上的我的名字，然后提交PR:https://github.com/BertShou/quantitative_trading_prediction_model/pull/3/files
   - 每人根据自己的研究方向，需要同时生成两页PPT，完成并上传代码库后，在相应的checkbox中打钩。
   - baostock是老师提供的免费因子库，[baostock_demo.py](demo/baostock_demo.py) 是一个简单的demo，演示了如何使用获取数据。
 
