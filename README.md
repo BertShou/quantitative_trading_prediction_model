@@ -37,5 +37,6 @@
     - 例如项目的初模型的开发，由我来做，那我就在负责人这里填上的我的名字，然后提交PR:https://github.com/BertShou/quantitative_trading_prediction_model/pull/3/files
   - 每人根据自己的研究方向，需要同时生成两页PPT，完成并上传代码库后，在相应的checkbox中打钩。
   - baostock是老师提供的免费因子库，[baostock_demo.py](demo/baostock_demo.py) 是一个简单的demo，演示了如何使用获取数据。
+    - 我公司的网（外网）无法访问，所以可能挂了VPN也没法访问。
 
 # 注意！！！在项目正式开始开发之后，所有人每次要修改、提交PR之前，一定要先pull一下最新的代码，然后把最近的改动（如果有）合并到自己的分支，再修改/提交，避免冲突。
