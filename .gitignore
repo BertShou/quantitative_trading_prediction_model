@@ -3,6 +3,9 @@
 /data
 .ipynb_checkpoints
 
+/predict_output
+*.log
+
 *.class
 
 # Mobile Tools for Java (J2ME)
