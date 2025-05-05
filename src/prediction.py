@@ -8,7 +8,7 @@ import seaborn as sns  # 导入seaborn，用于统计数据可视化
 import tensorflow as tf  # 导入tensorflow，深度学习框架
 import yfinance as yf  # 导入yfinance库，用于获取股票历史数据
 from keras.callbacks import EarlyStopping, ModelCheckpoint, ReduceLROnPlateau  # 导入Keras回调函数，用于模型训练控制
-from keras.layers import LSTM, Dense, Dropout, Bidirectional, Input, Concatenate, Layer  # 导入Keras的LSTM、Dense和Dropout层，用于构建神经网络
+from keras.layers import LSTM, Dense, Dropout, Bidirectional, Input, Concatenate  # 导入Keras的LSTM、Dense和Dropout层，用于构建神经网络
 from keras.models import Sequential, load_model, Model  # 导入Keras的Sequential模型和加载模型函数
 from scipy import stats  # 导入stats，用于异常值检测
 from sklearn.decomposition import PCA  # 导入PCA，用于降维
@@ -392,43 +392,6 @@ def split_data(df, pca_df=None, train_ratio=0.7, val_ratio=0.15):
         return (train_df, val_df, test_df), (None, None, None)
 
 
-# 自定义注意力层
-class AttentionLayer(Layer):
-    """
-    自定义注意力机制层，用于关注时间序列中的重要部分
-    """
-
-    def __init__(self, **kwargs):
-        """初始化函数"""
-        super(AttentionLayer, self).__init__(**kwargs)  # 调用父类初始化
-
-    def build(self, input_shape):
-        """构建层参数"""
-        self.W = self.add_weight(name="att_weight", shape=(input_shape[-1], 1),
-                                 initializer="normal")  # 注意力权重矩阵
-        self.b = self.add_weight(name="att_bias", shape=(input_shape[1], 1),
-                                 initializer="zeros")  # 注意力偏置
-        super(AttentionLayer, self).build(input_shape)  # 调用父类构建方法
-
-    def call(self, x):
-        """前向传播"""
-        # 计算注意力权重
-        e = tf.tanh(tf.matmul(x, self.W) + self.b)  # 使用tanh激活权重
-
-        # 对权重进行softmax归一化
-        a = tf.nn.softmax(e, axis=1)  # 在时间轴上进行softmax
-
-        # 应用注意力权重到输入序列
-        output = x * tf.expand_dims(a, -1)  # 权重乘以输入
-
-        # 沿着时间轴进行加权和
-        return tf.reduce_sum(output, axis=1)  # 返回加权和
-
-    def compute_output_shape(self, input_shape):
-        """计算输出形状"""
-        return input_shape[0], input_shape[-1]  # 返回批大小和特征维度
-
-
 # 6. 构建优化的分类模型 - 使用双向LSTM但简化结构
 def build_model(input_shape):
     """
@@ -663,7 +626,7 @@ def plot_roc_curve(model, X_test, y_test):
     return auc_value  # 返回AUC值
 
 
-def generate_signal(prediction, threshold=0.55):
+def generate_signal(prediction, threshold=0.52):
     """
     根据预测的上涨概率生成交易信号
 
@@ -707,6 +670,7 @@ def backtest_strategy(dates, prices, signals, initial_cash=INITIAL_CASH, shares_
     cash = initial_cash  # 初始化现金
     shares = 0  # 初始化持股数量
     trades = []  # 初始化交易记录列表
+    total_invested = initial_cash  # 追踪实际投入的总资金，初始为初始现金
 
     # 记录每日资产状态
     results['Cash'] = 0.0  # 现金列
@@ -714,6 +678,7 @@ def backtest_strategy(dates, prices, signals, initial_cash=INITIAL_CASH, shares_
     results['ShareValue'] = 0.0  # 持股价值列
     results['TotalValue'] = 0.0  # 总资产价值列
     results['Returns'] = 0.0  # 收益率列
+    results['TotalInvested'] = 0.0  # 追踪累计投入资金
 
     # 模拟交易
     for i in range(len(results)):  # 遍历每一个交易日
@@ -724,12 +689,19 @@ def backtest_strategy(dates, prices, signals, initial_cash=INITIAL_CASH, shares_
         # 格式化日期（移除时区信息）
         formatted_date = pd.to_datetime(current_date).strftime('%Y-%m-%d')  # 格式化日期
 
-        # 执行交易
-        if signal == 'buy' and cash >= current_price * shares_per_trade:  # 如果信号为买入且现金足够
+        # 执行交易 - 移除资金和持股数量限制
+        if signal == 'buy':  # 如果信号为买入
             # 买入操作
             purchase_amount = current_price * shares_per_trade  # 计算购买金额
-            cash -= purchase_amount  # 扣除现金
+            cash -= purchase_amount  # 扣除现金（允许负值，代表借款）
             shares += shares_per_trade  # 增加持股数量
+            
+            # 如果现金为负，表示额外投入了资金
+            if cash < 0:
+                additional_investment = abs(cash)
+                total_invested += additional_investment  # 增加总投入资金
+                cash = 0  # 重置现金为0，相当于增加投资
+            
             trades.append({  # 记录交易
                 'Date': current_date,  # 交易日期
                 'Type': 'Buy',  # 交易类型
@@ -737,16 +709,17 @@ def backtest_strategy(dates, prices, signals, initial_cash=INITIAL_CASH, shares_
                 'Shares': shares_per_trade,  # 交易股数
                 'Amount': purchase_amount,  # 交易金额
                 'Cash': cash,  # 交易后现金
-                'Holdings': shares  # 交易后持股
+                'Holdings': shares,  # 交易后持股
+                'TotalInvested': total_invested  # 累计投入资金
             })
             print(
                 f"买入: {formatted_date} - {shares_per_trade}股 @ {CURRENCY_SYMBOL}{current_price:.2f} = {CURRENCY_SYMBOL}{purchase_amount:.2f}")  # 打印买入信息
 
-        elif signal == 'sell' and shares >= shares_per_trade:  # 如果信号为卖出且有足够的股票
-            # 卖出操作
+        elif signal == 'sell':  # 如果信号为卖出
+            # 卖出操作 - 即使没有足够的股票也允许卖出（代表卖空）
             sale_amount = current_price * shares_per_trade  # 计算销售金额
             cash += sale_amount  # 增加现金
-            shares -= shares_per_trade  # 减少持股数量
+            shares -= shares_per_trade  # 减少持股数量（允许负值，代表卖空）
             trades.append({  # 记录交易
                 'Date': current_date,  # 交易日期
                 'Type': 'Sell',  # 交易类型
@@ -754,7 +727,8 @@ def backtest_strategy(dates, prices, signals, initial_cash=INITIAL_CASH, shares_
                 'Shares': shares_per_trade,  # 交易股数
                 'Amount': sale_amount,  # 交易金额
                 'Cash': cash,  # 交易后现金
-                'Holdings': shares  # 交易后持股
+                'Holdings': shares,  # 交易后持股
+                'TotalInvested': total_invested  # 累计投入资金
             })
             print(
                 f"卖出: {formatted_date} - {shares_per_trade}股 @ {CURRENCY_SYMBOL}{current_price:.2f} = {CURRENCY_SYMBOL}{sale_amount:.2f}")  # 打印卖出信息
@@ -767,6 +741,7 @@ def backtest_strategy(dates, prices, signals, initial_cash=INITIAL_CASH, shares_
         results.loc[results.index[i], 'Shares'] = shares  # 更新持股数量
         results.loc[results.index[i], 'ShareValue'] = share_value  # 更新持股价值
         results.loc[results.index[i], 'TotalValue'] = total_value  # 更新总资产价值
+        results.loc[results.index[i], 'TotalInvested'] = total_invested  # 更新累计投入资金
 
     # 计算日收益率
     results['Returns'] = results['TotalValue'].pct_change().fillna(0)  # 计算每日收益率
@@ -781,6 +756,7 @@ def backtest_strategy(dates, prices, signals, initial_cash=INITIAL_CASH, shares_
     results.attrs['trades'] = trades_df  # 将交易记录添加到结果的属性中
     results.attrs['initial_cash'] = initial_cash  # 记录初始现金
     results.attrs['final_value'] = results['TotalValue'].iloc[-1]  # 记录最终价值
+    results.attrs['total_invested'] = total_invested  # 记录实际投入的总资金
 
     return results  # 返回回测结果
 
@@ -801,11 +777,12 @@ def calculate_performance_metrics(results, ticker, start_date, end_date):
     # 提取关键数据
     initial_value = results.attrs['initial_cash']  # 获取初始资金
     final_value = results.attrs['final_value']  # 获取最终资产
+    total_invested = results.attrs.get('total_invested', initial_value)  # 获取实际投入的总资金，如果没有则使用初始资金
     returns = results['Returns']  # 获取收益率序列
     cum_returns = results['CumulativeReturns']  # 获取累积收益率序列
 
-    # 计算总收益率
-    total_return = (final_value / initial_value) - 1  # 计算总收益率
+    # 计算总收益率（基于实际投入的总资金）
+    total_return = (final_value / total_invested) - 1  # 计算实际总收益率
 
     # 计算交易天数和年化因子
     trading_days = len(results)  # 获取交易天数
@@ -849,8 +826,9 @@ def calculate_performance_metrics(results, ticker, start_date, end_date):
     print(f"\n===== {ticker} 策略绩效指标 =====")  # 打印标题
     print(f"交易时间段: {result_start_date} 至 {result_end_date}")  # 打印交易时间段
     print(f"初始资金: {CURRENCY_SYMBOL}{initial_value:.2f}")  # 打印初始资金
+    print(f"实际投入总资金: {CURRENCY_SYMBOL}{total_invested:.2f}")  # 打印实际投入的总资金
     print(f"最终资产: {CURRENCY_SYMBOL}{final_value:.2f}")  # 打印最终资产
-    print(f"总收益率: {total_return:.2%}")  # 打印总收益率
+    print(f"总收益率(基于实际投入): {total_return:.2%}")  # 打印基于实际投入的总收益率
     print(f"年化收益率: {annualized_return:.2%}")  # 打印年化收益率
     print(f"年化波动率: {annualized_volatility:.2%}")  # 打印年化波动率
     print(f"夏普比率: {sharpe_ratio:.2f}")  # 打印夏普比率
@@ -864,8 +842,9 @@ def calculate_performance_metrics(results, ticker, start_date, end_date):
         f.write(f"数据范围: {start_date} 至 {end_date}\n")  # 写入数据范围
         f.write(f"交易时间段: {result_start_date} 至 {result_end_date}\n")  # 写入交易时间段
         f.write(f"初始资金: {CURRENCY_SYMBOL}{initial_value:.2f}\n")  # 写入初始资金
+        f.write(f"实际投入总资金: {CURRENCY_SYMBOL}{total_invested:.2f}\n")  # 写入实际投入的总资金
         f.write(f"最终资产: {CURRENCY_SYMBOL}{final_value:.2f}\n")  # 写入最终资产
-        f.write(f"总收益率: {total_return:.2%}\n")  # 写入总收益率
+        f.write(f"总收益率(基于实际投入): {total_return:.2%}\n")  # 写入基于实际投入的总收益率
         f.write(f"年化收益率: {annualized_return:.2%}\n")  # 写入年化收益率
         f.write(f"年化波动率: {annualized_volatility:.2%}\n")  # 写入年化波动率
         f.write(f"夏普比率: {sharpe_ratio:.2f}\n")  # 写入夏普比率
@@ -879,7 +858,8 @@ def calculate_performance_metrics(results, ticker, start_date, end_date):
         'annualized_volatility': annualized_volatility,  # 年化波动率
         'sharpe_ratio': sharpe_ratio,  # 夏普比率
         'max_drawdown': max_drawdown,  # 最大回撤
-        'num_trades': num_trades  # 交易次数
+        'num_trades': num_trades,  # 交易次数
+        'total_invested': total_invested  # 实际投入的总资金
     }
 
 
@@ -1057,7 +1037,6 @@ def visualize_predictions(dates, prices, predictions, signals, ticker):
 
 if __name__ == '__main__':
     """主函数入口"""
-    # 可以通过命令行参数或配置文件修改这些默认值
     ticker = "KO"  # 默认使用可口可乐股票
     start_date = "2021-01-01"  # 默认起始日期
     end_date = "2023-12-31"  # 默认结束日期
@@ -1065,7 +1044,6 @@ if __name__ == '__main__':
     # predict()
     results = predict(ticker, start_date, end_date, load_existing=False)
     # 自定义股票和日期
-    # predict("AAPL", "2021-01-01", "2023-12-31")
     # predict("MSFT", "2021-01-01", "2023-12-31")  # 微软
     # predict("GOOGL", "2021-01-01", "2023-12-31")  # 谷歌
 
@@ -1073,12 +1051,14 @@ if __name__ == '__main__':
     if results is not None:
         final_value = results.attrs['final_value']
         initial_cash = results.attrs['initial_cash']
-        total_return = (final_value / initial_cash - 1) * 100
+        total_invested = results.attrs.get('total_invested', initial_cash)
+        total_return = (final_value / total_invested - 1) * 100
         print(f"\n==== 预测总结 ====")
         print(f"股票: {ticker}")
         print(f"时间段: {start_date} 至 {end_date}")
         print(f"初始资金: ${initial_cash:.2f}")
+        print(f"实际投入总资金: ${total_invested:.2f}")
         print(f"最终资产: ${final_value:.2f}")
-        print(f"总收益率: {total_return:.2f}%")
+        print(f"总收益率(基于实际投入): {total_return:.2f}%")
     else:
         print("预测未完成或出现错误。")
