@@ -795,14 +795,11 @@ def calculate_performance_metrics(results, ticker, start_date, end_date):
     daily_returns_std = returns.std()  # 计算日收益率标准差
     annualized_volatility = daily_returns_std * np.sqrt(252)  # 计算年化波动率
 
-    # 计算夏普比率 (假设无风险利率为0.02)
-    daily_risk_free = ((1 + RISK_FREE_RATE) ** (1 / 252)) - 1  # 计算日无风险收益率
-
     # 安全计算夏普比率，避免除以零
-    if daily_returns_std > 0:  # 如果有波动性
-        sharpe_ratio = (returns.mean() - daily_risk_free) / daily_returns_std * np.sqrt(252)  # 计算夏普比率
-    else:  # 如果没有波动性
-        sharpe_ratio = 0  # 将夏普比率设为0
+    if annualized_volatility > 0:  # 基于年化波动率判断
+        sharpe_ratio = (annualized_return - RISK_FREE_RATE) / annualized_volatility
+    else:  # 如果没有波动性 (年化波动率为0)
+        sharpe_ratio = 0.0  # 将夏普比率设为0
 
     # 计算最大回撤
     if not cum_returns.empty:  # 如果有累积收益率数据
